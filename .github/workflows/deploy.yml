@@ -1,11 +1,12 @@
+ yml
+
 name: Build & Deploy
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
   workflow_dispatch:
 
-# Needed to push to ghcr.io
 permissions:
   contents: read
   packages: write
@@ -17,38 +18,38 @@ concurrency:
 jobs:
   build-push:
     runs-on: ubuntu-latest
-
     outputs:
-      image: ${{ steps.vars.outputs.image }}
-      sha_image: ${{ steps.build.outputs.digest }}
-
+        image: ${{ steps.vars.outputs.image }}
+        sha_image: ${{ steps.vars.outputs.sha_image }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set vars
-        id: vars
-        run: echo "image=ghcr.io/${{ github.repository }}/app" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
+      - uses: actions/checkout@v4
+      - name: Set up Docker Build
         uses: docker/setup-buildx-action@v3
+        with:
+          install: true
+          
+      # Compute lowercase GHCR image name
+      - name: Compute image name (lowercase)
+        id: vars
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "sha_image=$IMAGE:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Log in to GHCR
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & push
-        id: build
+      - name: Build & Push (cached)
         uses: docker/build-push-action@v6
         with:
-          context: .
           push: true
+          context: .
           tags: |
             ${{ steps.vars.outputs.image }}:latest
-            ${{ steps.vars.outputs.image }}:${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            ${{ steps.vars.outputs.sha_image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
